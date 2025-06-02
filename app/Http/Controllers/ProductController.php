@@ -4,10 +4,19 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
+use App\Services\ProductService;
+use App\Validators\ProductValidator;
+use Illuminate\Validation\ValidationException;
 
 class ProductController extends Controller
 {
+    protected $productService;
+
+    public function __construct(ProductService $productService)
+    {
+        $this->productService = $productService;
+    }
+
     public function index()
     {
         return response()->json(Product::all());
@@ -15,29 +24,17 @@ class ProductController extends Controller
 
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'name'  => 'required|string|max:255',
-            'price' => 'required|numeric|min:0',
-            'photo' => 'required|image|mimes:jpg,jpeg,png|max:2048',
-            'type'  => 'required|string',
-        ]);
+        try {
+            $validated = ProductValidator::validateStore($request->all());
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            $product = $this->productService->createProduct($validated, $request->file('photo'));
+
+            return response()->json($product, 201);
+        } catch (ValidationException $e) {
+            return response()->json(['errors' => $e->errors()], 422);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Internal Server Error'], 500);
         }
-
-        // Salvar a imagem no diretório storage/app/public/products
-        $path = $request->file('photo')->store('products', 'public');
-
-        // Criar o produto com o path da imagem
-        $product = Product::create([
-            'name'  => $request->name,
-            'price' => $request->price,
-            'photo' => $path, // aqui vai o caminho salvo
-            'type'  => $request->type,
-        ]);
-
-    return response()->json($product, 201);
     }
 
     public function show($id)
@@ -56,19 +53,16 @@ class ProductController extends Controller
             return response()->json(['message' => 'Product not found'], 404);
         }
 
-        $validator = Validator::make($request->all(), [
-            'name' => 'sometimes|required|string|max:255',
-            'price' => 'sometimes|required|numeric|min:0',
-            'photo' => 'sometimes|required|string',
-            'type' => 'sometimes|required|string',
-        ]);
+        try {
+            $validated = ProductValidator::validateUpdate($request->all());
+            $updatedProduct = $this->productService->updateProduct($product, $validated);
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json($updatedProduct);
+        } catch (ValidationException $e) {
+            return response()->json(['errors' => $e->errors()], 422);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Internal Server Error'], 500);
         }
-
-        $product->update($validator->validated());
-        return response()->json($product);
     }
 
     public function destroy($id)
